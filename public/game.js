@@ -87,7 +87,6 @@ const els = {
 };
 
 function init() {
-    for(let i=0; i<3; i++) generateBounty();
     renderBounties();
     renderStreets();
     renderCrimes();
@@ -149,8 +148,31 @@ socket.on('login_success', data => {
     state.stats.dex = data.dex;
     state.jailTime = data.jailTime;
     state.currentProp = data.property;
+    state.inventory = data.inventory || {};
     
     init(); // Start game loops and renders
+});
+
+socket.on('update_cash', amount => {
+    state.cash += amount;
+    updateUI();
+});
+
+socket.on('inv_update', data => {
+    if (data.cashChange) state.cash += data.cashChange;
+    state.inventory[data.itemId] = (state.inventory[data.itemId] || 0) + data.change;
+    if (state.inventory[data.itemId] <= 0) delete state.inventory[data.itemId];
+    
+    if (data.used) {
+        if (data.type === 'energy') state.bars.energy.current = Math.min(state.bars.energy.max, state.bars.energy.current + data.val);
+        if (data.type === 'life') state.bars.life.current = Math.min(state.bars.life.max, state.bars.life.current + data.val);
+        if (data.type === 'mixed') { state.bars.nerve.current += 2; state.bars.happy.current += 10; }
+        if (data.type === 'booster') state.capacity += data.val;
+        showModal("Item Used", "You used the item successfully.", null, false);
+    }
+    
+    updateUI();
+    if (document.getElementById('items').classList.contains('active')) renderInventory();
 });
 
 // ---- CUSTOM MODAL SYSTEM ----
@@ -224,6 +246,42 @@ socket.on('chat_message', msg => {
     els.chatBody.appendChild(div);
     els.chatBody.scrollTop = els.chatBody.scrollHeight;
     if(els.chatBody.children.length > 30) els.chatBody.removeChild(els.chatBody.firstChild);
+});
+
+// ---- LIVE STREETS & COMBAT ----
+let onlinePlayers = [];
+
+socket.on('active_players', players => {
+    onlinePlayers = players;
+    if (document.getElementById('streets').classList.contains('active')) {
+        renderStreets();
+    }
+});
+
+socket.on('combat_error', msg => showModal("Error", msg));
+
+socket.on('combat_win', data => {
+    state.bars.energy.current = Math.max(0, state.bars.energy.current - 25);
+    state.cash += data.loot;
+    updateUI();
+    showModal("Victory!", `You attacked ${data.target} and mugged them for $${data.loot.toLocaleString()}!`);
+});
+
+socket.on('combat_lose', data => {
+    state.bars.energy.current = Math.max(0, state.bars.energy.current - 25);
+    state.bars.life.current = 0;
+    state.hospital.push({ id: 'player', name: 'Player', time: 120, reason: `Lost a fight against ${data.target}` });
+    updateUI(); renderHospital();
+    showModal("Defeat", `You attacked ${data.target} but they beat you down. You are in the hospital for 120 seconds.`);
+});
+
+socket.on('attacked_by', data => {
+    state.cash = Math.max(0, state.cash - data.loot);
+    state.bars.life.current = 0;
+    state.hospital.push({ id: 'player', name: 'Player', time: 120, reason: `Mugged by ${data.attacker}` });
+    updateUI(); renderHospital();
+    showModal("Attacked!", `You were mugged by ${data.attacker}! You lost $${data.loot.toLocaleString()} and are now in the hospital.`);
+    pushPhoneNotification(`Combat: You were mugged by ${data.attacker} and lost $${data.loot.toLocaleString()}.`);
 });
 
 // ---- TICKERS ----
@@ -511,67 +569,67 @@ window.train = function(stat) {
 
 // ---- TRADE (MARKET) ----
 function renderTrade() {
-    els.tradeInv.innerHTML = ''; els.tradeMarket.innerHTML = ''; els.tradeLog.innerHTML = '';
+    if (!els.tradeContainer) return;
+    els.tradeContainer.innerHTML = '';
     
-    let hasInv = false;
-    for (const [itemId, qty] of Object.entries(state.inventory)) {
-        if (qty > 0) {
-            hasInv = true;
-            const item = ITEMS.find(i => i.id === itemId);
-            const card = document.createElement('div'); card.className = 'action-card';
-            card.innerHTML = `<div class="item-info"><span class="icon">${item.icon}</span><div><strong>${item.name}</strong> <span class="badge">x${qty}</span></div></div>
-            <button class="btn btn-accent" onclick="promptListMarket('${item.id}')">List</button>`;
-            els.tradeInv.appendChild(card);
-        }
-    }
-    if(!hasInv) els.tradeInv.innerHTML = '<p class="text-muted">No items to sell.</p>';
+    const storeHeader = document.createElement('h3'); storeHeader.innerText = "City Stores (NPC)";
+    els.tradeContainer.appendChild(storeHeader);
     
-    if(state.marketListings.length === 0) {
-        els.tradeMarket.innerHTML = '<p class="text-muted">You have no active listings.</p>';
-    } else {
-        state.marketListings.forEach((listing, index) => {
-            const item = ITEMS.find(i => i.id === listing.itemId);
-            const card = document.createElement('div'); card.className = 'action-card';
-            card.innerHTML = `<div class="item-info"><span class="icon">${item.icon}</span><div><strong>${item.name}</strong> <div class="text-success" style="font-weight:bold;">$${listing.price.toLocaleString()}</div></div></div>
-            <button class="btn btn-danger" onclick="cancelListing(${index})">Cancel</button>`;
-            els.tradeMarket.appendChild(card);
-        });
-    }
+    ITEMS.filter(i => i.loc === 'Torn City' && i.cost > 0 && i.type !== 'collectible').forEach(item => {
+        let actualCost = item.cost;
+        if (state.education.completed.includes('edu_bus')) actualCost = Math.floor(actualCost * 0.9);
+        
+        const card = document.createElement('div'); card.className = 'action-card';
+        card.innerHTML = `<div class="item-info"><span class="icon">${item.icon}</span><div><strong>${item.name}</strong> <span class="badge bg-dark">$${actualCost.toLocaleString()}</span></div></div>
+            <div>
+                <button class="btn btn-success" onclick="buyItem('${item.id}')">Buy</button>
+            </div>`;
+        els.tradeContainer.appendChild(card);
+    });
+
+    const marketHeader = document.createElement('h3'); marketHeader.innerText = "Global Player Market"; marketHeader.style.marginTop = '30px';
+    els.tradeContainer.appendChild(marketHeader);
     
-    if(state.tradeLog.length === 0) {
-        els.tradeLog.innerHTML = '<p class="text-muted">No recent trades.</p>';
-    } else {
-        state.tradeLog.forEach(logHtml => {
-            const div = document.createElement('div');
-            div.style.padding = "8px"; div.style.borderBottom = "1px solid var(--border)"; div.style.fontSize = "0.85rem";
-            div.innerHTML = logHtml;
-            els.tradeLog.appendChild(div);
-        });
-    }
+    const marketDiv = document.createElement('div');
+    marketDiv.id = 'player-market-container';
+    els.tradeContainer.appendChild(marketDiv);
+    
+    socket.emit('get_market');
 }
 
-window.promptListMarket = function(itemId) {
-    const item = ITEMS.find(i => i.id === itemId);
-    const html = `<p>List 1x <strong>${item.name}</strong> on the Item Market.</p><p class="text-muted">Base sell value: $${item.sell.toLocaleString()}</p>
-        <div style="margin-top:15px;"><label>Price: $</label><input type="number" id="market-price-input" value="${item.sell * 2}" style="background:#111; color:white; border:1px solid #444; padding:5px;"></div>`;
-    showModal("List Item", html, () => {
-        const price = parseInt(document.getElementById('market-price-input').value);
-        if(isNaN(price) || price <= 0) return showModal("Error", "Invalid price.");
-        if(state.inventory[itemId] > 0) {
-            state.inventory[itemId]--; state.marketListings.push({ itemId: itemId, price: price });
-            updateUI(); renderInventory(); renderTrade();
-            pushPhoneNotification(`Market: You listed a ${item.name} for $${price.toLocaleString()}.`);
-        }
-    }, true);
+let liveMarket = [];
+socket.on('market_data', data => {
+    liveMarket = data;
+    const container = document.getElementById('player-market-container');
+    if (!container) return;
+    container.innerHTML = '';
+    
+    if (data.length === 0) {
+        container.innerHTML = '<p class="text-muted">The market is empty.</p>';
+        return;
+    }
+    
+    data.forEach(m => {
+        const itemDef = ITEMS.find(i => i.id === m.itemId);
+        const card = document.createElement('div'); card.className = 'action-card';
+        card.innerHTML = `<div class="item-info"><span class="icon">${itemDef?itemDef.icon:'📦'}</span><div><strong>${itemDef?itemDef.name:'Unknown'}</strong> <span class="badge" style="background:var(--accent);">$${m.price.toLocaleString()}</span><div class="text-muted" style="font-size:0.8rem;">Seller: ${m.sellerName}</div></div></div>
+            <button class="btn btn-success" onclick="socket.emit('buy_market_item', ${m.id})">Buy</button>`;
+        container.appendChild(card);
+    });
+});
+
+window.buyItem = function(id) {
+    socket.emit('buy_npc_item', id);
 }
 
-window.cancelListing = function(index) {
-    const listing = state.marketListings[index];
-    if(getInventoryCount() >= state.maxInv) return showModal("Error", "Inventory full, cannot cancel listing.");
-    state.marketListings.splice(index, 1);
-    if(!state.inventory[listing.itemId]) state.inventory[listing.itemId] = 0;
-    state.inventory[listing.itemId]++;
-    updateUI(); renderInventory(); renderTrade();
+window.useItem = function(id) {
+    socket.emit('use_item', id);
+}
+
+window.sellItem = function(id) {
+    const price = prompt("Enter the price you want to list this item for on the Global Market:");
+    if (!price || isNaN(price) || parseInt(price) <= 0) return;
+    socket.emit('list_market_item', { itemId: id, price: parseInt(price) });
 }
 
 // ---- COMBAT & BOUNTIES ----
@@ -608,101 +666,72 @@ function commitCrime(id) {
 }
 
 function renderStreets() {
+    if (!els.streetsContainer) return;
     els.streetsContainer.innerHTML = '';
-    NPCS.forEach(npc => {
+    
+    if (onlinePlayers.length <= 1) {
+        els.streetsContainer.innerHTML = '<p class="text-muted">No one else is currently out on the streets.</p>';
+        return;
+    }
+    
+    const myName = document.getElementById('auth-username').value;
+    
+    onlinePlayers.forEach(p => {
+        if (p.username === myName) return; // Don't attack yourself
         const card = document.createElement('div'); card.className = 'action-card';
-        card.innerHTML = `<div class="item-info"><span class="icon">${npc.icon}</span><div><strong>${npc.name}</strong> <span class="badge" style="background:#555;">Diff: ${npc.stats.toLocaleString()}</span></div></div>
-            <button class="btn btn-danger" onclick="attackTarget('${npc.id}')">Attack (-25 Eng)</button>`;
+        card.innerHTML = `<div class="item-info"><span class="icon">👤</span><div><strong>${p.username}</strong> <span class="badge" style="background:#555;">Player</span></div></div>
+            <button class="btn btn-danger" onclick="attackTarget('${p.id}')">Attack (-25 Eng)</button>`;
         els.streetsContainer.appendChild(card);
     });
 }
 
-window.attackTarget = function(npcId) {
-    if (state.jailTime > 0 || state.bars.energy.current < 25) return;
+window.attackTarget = function(playerId) {
+    if (state.jailTime > 0) return;
     if (state.hospital.find(h => h.id === 'player')) return showModal("Error", "You are in the hospital.");
+    if (state.bars.energy.current < 25) return showModal("Error", "Need 25 Energy.");
     
-    state.bars.energy.current -= 25;
-    const npc = NPCS.find(n => n.id === npcId);
-    const myStats = state.stats.str + state.stats.def + state.stats.spd + state.stats.dex;
-    if ((myStats * (0.8 + Math.random() * 0.4)) >= (npc.stats * (0.8 + Math.random() * 0.4))) {
-        showModal("Victory!", `<div style="display:flex;gap:10px;justify-content:center;margin-top:20px;"><button class="btn btn-success" onclick="resolveCombat('mug', '${npc.id}')">Mug</button><button class="btn btn-accent" onclick="resolveCombat('hosp', '${npc.id}')">Hospitalize</button></div>`, null, false);
-        els.modalConfirm.classList.add('hidden'); 
-    } else { 
-        state.bars.life.current = 0; 
-        state.hospital.push({ id: 'player', name: 'Player', time: 120, reason: `Beaten up by ${npc.name}` });
-        showModal("Defeat", "You were beaten and sent to the Hospital for 120 seconds."); 
-        renderHospital();
-    }
-    updateUI();
+    socket.emit('attack_player', playerId);
 }
 
-window.resolveCombat = function(choice, npcId) {
-    const npc = NPCS.find(n => n.id === npcId);
-    els.modal.classList.add('hidden'); els.modalConfirm.classList.remove('hidden'); 
-    if (choice === 'mug') {
-        const loot = Math.floor(Math.random() * (npc.maxCash - npc.minCash + 1)) + npc.minCash;
-        state.cash += loot; showModal("Mugged!", `Stole $${loot.toLocaleString()}.`);
-    } else if (choice === 'hosp') {
-        const boost = Math.max(1, npc.stats * 0.05);
-        state.stats.str += boost; state.stats.def += boost; state.stats.spd += boost; state.stats.dex += boost;
-        showModal("Hospitalized!", `Gained massive stats.`);
-        state.hospital.push({ id: npc.id + '_' + Date.now(), name: npc.name, time: 60, reason: 'Street Brawl' });
-        renderHospital();
-    }
-    updateUI();
-}
+// ---- BOUNTIES ----
+let liveBounties = [];
 
-function claimBounty(id) {
-    if (state.hospital.find(h => h.id === 'player')) return showModal("Error", "You are in the hospital.");
-    if (state.jailTime > 0 || state.travel.status === 'flying') return;
-    if (state.bars.energy.current < 50) return showModal("Error", "Need 50 Energy.");
-    if (state.bars.life.current < state.bars.life.max * 0.2) return showModal("Error", "Health too low.");
-    state.bars.energy.current -= 50;
-    
-    const targetIdx = state.bounties.findIndex(b => b.id === id);
-    const target = state.bounties[targetIdx];
-    const myStats = state.stats.str + state.stats.def + state.stats.spd + state.stats.dex;
-    const myRoll = myStats * (0.8 + Math.random() * 0.4);
-    const targetRoll = target.stats * (0.8 + Math.random() * 0.4);
-    
-    if (myRoll >= targetRoll) {
-        state.cash += target.reward; state.bounties.splice(targetIdx, 1);
-        showModal("Hit Successful", `Assassinated ${target.name}. Claimed $${target.reward.toLocaleString()}.`);
-        pushPhoneNotification(`Bounties: Assassinated ${target.name} and claimed $${target.reward.toLocaleString()}.`);
+socket.on('bounties_data', data => {
+    liveBounties = data;
+    if (document.getElementById('bounties').classList.contains('active')) {
         renderBounties();
-    } else {
-        state.bars.life.current = 0; 
-        state.hospital.push({ id: 'player', name: 'Player', time: 300, reason: `Failed hit on ${target.name}` });
-        showModal("Hit Failed", `Failed to kill ${target.name}. You wake up in Hospital for 300 seconds.`);
-        renderHospital();
     }
-    updateUI();
-}
-
-const BOUNTY_NAMES = ['Viper', 'The Ghost', 'Iron Jaw', 'Scarface', 'The Rat', 'Blackjack', 'Shadow'];
-function generateBounty() {
-    if (state.bounties.length >= 5) return;
-    const diffRoll = Math.random();
-    let stats, reward, title;
-    if (diffRoll < 0.5) { stats = Math.floor(Math.random() * 50) + 50; reward = stats * 100; title = 'Petty Criminal'; }
-    else if (diffRoll < 0.85) { stats = Math.floor(Math.random() * 500) + 200; reward = stats * 200; title = 'Wanted Felon'; }
-    else { stats = Math.floor(Math.random() * 5000) + 1000; reward = stats * 500; title = 'Crime Boss'; }
-    
-    const name = BOUNTY_NAMES[Math.floor(Math.random() * BOUNTY_NAMES.length)] + " " + Math.floor(Math.random()*1000);
-    state.bounties.push({ id: 'b' + Date.now(), name: name, title: title, stats: stats, reward: reward });
-}
+});
 
 function renderBounties() {
-    if (!els.bountiesContainer) return;
-    els.bountiesContainer.innerHTML = '';
-    if (state.bounties.length === 0) { els.bountiesContainer.innerHTML = '<p class="text-muted">No active bounties.</p>'; return; }
+    const container = document.getElementById('bounties-container');
+    if (!container) return;
+    container.innerHTML = '';
     
-    state.bounties.forEach(b => {
+    if (liveBounties.length === 0) {
+        container.innerHTML = '<p class="text-muted">No active bounties on the board.</p>';
+        return;
+    }
+    
+    liveBounties.forEach(b => {
         const card = document.createElement('div'); card.className = 'action-card';
-        card.innerHTML = `<div class="item-info"><span class="icon">🎯</span><div><strong>${b.name}</strong> <span class="badge" style="background:#8b0000;">Reward: $${b.reward.toLocaleString()}</span><div class="text-muted" style="font-size:0.8rem;">Target: ${b.title} | Est. Stats: ${b.stats.toLocaleString()}</div></div></div>
-            <button class="btn btn-accent" onclick="claimBounty('${b.id}')">Hit (-50 Eng)</button>`;
-        els.bountiesContainer.appendChild(card);
+        card.innerHTML = `<div class="item-info"><span class="icon">🎯</span><div><strong>${b.targetName}</strong> <span class="badge" style="background:var(--danger);">$${b.reward.toLocaleString()}</span><div class="text-muted" style="font-size:0.8rem;">Placed by: ${b.placerName}</div></div></div>
+            <button class="btn btn-danger" onclick="document.querySelectorAll('.nav-btn[data-tab=\\'streets\\']')[0].click()">Find on Streets</button>`;
+        container.appendChild(card);
     });
+}
+
+window.placeBounty = function() {
+    const target = document.getElementById('bounty-target').value.trim();
+    const reward = parseInt(document.getElementById('bounty-reward').value);
+    const qty = parseInt(document.getElementById('bounty-qty').value);
+    
+    if (!target) return showModal("Error", "Enter a target username.");
+    if (reward < 1000) return showModal("Error", "Minimum bounty is $1,000.");
+    if (qty < 1 || qty > 200) return showModal("Error", "Quantity must be 1 to 200.");
+    
+    socket.emit('place_bounty', { target: target, reward: reward, count: qty });
+    document.getElementById('bounty-target').value = '';
 }
 
 // ---- STOCKS & EDUCATION ----
@@ -941,8 +970,94 @@ function setupTabs() {
         if(t.dataset.tab==='hospital') renderHospital();
         if(t.dataset.tab==='gym') renderGym();
         if(t.dataset.tab==='crimes') renderCrimes();
+        if(t.dataset.tab==='bounties') {
+            socket.emit('get_bounties');
+            renderBounties();
+        }
         if(t.dataset.tab==='newspaper') {
             // Static visual newspaper tab, no render func needed for prototype
         }
     }));
 }
+
+// ---- CASINO LOGIC ----
+window.playSlots = function() {
+    const bet = parseInt(document.getElementById('bet-amount').value);
+    if (!bet || bet <= 0) return;
+    socket.emit('play_slots', bet);
+}
+
+socket.on('slots_result', data => {
+    state.tokens += data.netChange;
+    updateUI();
+    document.getElementById('reel1').innerText = data.reels[0];
+    document.getElementById('reel2').innerText = data.reels[1];
+    document.getElementById('reel3').innerText = data.reels[2];
+    
+    const msg = document.getElementById('slot-msg');
+    if (data.win > 0) {
+        msg.innerHTML = `<span style="color:var(--success)">You won ${data.win} Tokens!</span>`;
+    } else {
+        msg.innerHTML = `<span style="color:var(--danger)">You lost.</span>`;
+    }
+});
+
+window.playRoulette = function(color) {
+    const bet = parseInt(document.getElementById('roulette-bet').value);
+    if (!bet || bet <= 0) return;
+    socket.emit('play_roulette', { bet: bet, color: color });
+}
+
+socket.on('roulette_result', data => {
+    state.tokens += data.netChange;
+    updateUI();
+    const display = document.getElementById('roulette-display');
+    display.innerText = data.roll;
+    if (data.rollColor === 'red') display.style.color = '#ff4444';
+    else if (data.rollColor === 'black') display.style.color = '#fff';
+    else display.style.color = 'var(--success)';
+    
+    const msg = document.getElementById('roulette-msg');
+    if (data.netChange > 0) {
+        msg.innerHTML = `<span style="color:var(--success)">Winner! +${data.netChange} Tokens!</span>`;
+    } else {
+        msg.innerHTML = `<span style="color:var(--danger)">You lost.</span>`;
+    }
+});
+
+window.bjStart = function() {
+    const bet = parseInt(document.getElementById('bj-bet').value);
+    if (!bet || bet <= 0) return;
+    socket.emit('bj_start', bet);
+}
+
+socket.on('bj_update', data => {
+    if (data.netChange !== undefined) {
+        state.tokens += data.netChange;
+        updateUI();
+    }
+    const pHandHtml = data.pHand.map(c => `<span style="color:${['♥','♦'].includes(c.face.slice(-1))?'#ff4444':'#fff'}">${c.face}</span>`).join(' ');
+    const dHandHtml = data.dHand.map(c => `<span style="color:${['♥','♦'].includes(c.face.slice(-1))?'#ff4444':'#fff'}">${c.face}</span>`).join(' ');
+    
+    document.getElementById('bj-player').innerHTML = pHandHtml;
+    document.getElementById('bj-player-score').innerText = `Score: ${data.pScore}`;
+    document.getElementById('bj-dealer').innerHTML = dHandHtml;
+    document.getElementById('bj-dealer-score').innerText = `Score: ${data.dScore || '?'}`;
+    
+    const startDiv = document.getElementById('bj-controls-start');
+    const playDiv = document.getElementById('bj-controls-play');
+    const msg = document.getElementById('bj-msg');
+    
+    if (data.status === 'playing') {
+        startDiv.classList.add('hidden');
+        playDiv.classList.remove('hidden');
+        msg.innerHTML = `Your turn. Hit or Stand?`;
+    } else {
+        startDiv.classList.remove('hidden');
+        playDiv.classList.add('hidden');
+        if (data.status === 'bust') msg.innerHTML = `<span style="color:var(--danger)">Bust! You lost ${Math.abs(data.netChange)} Tokens.</span>`;
+        else if (data.status === 'win') msg.innerHTML = `<span style="color:var(--success)">You won ${data.netChange} Tokens!</span>`;
+        else if (data.status === 'lose') msg.innerHTML = `<span style="color:var(--danger)">Dealer wins. You lost ${Math.abs(data.netChange)} Tokens.</span>`;
+        else msg.innerHTML = `<span style="color:var(--text-muted)">Push. Bet returned.</span>`;
+    }
+});

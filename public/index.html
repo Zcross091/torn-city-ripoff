@@ -188,20 +188,75 @@
                 <section id="casino" class="tab-content">
                     <div class="content-header">Casino</div>
                     <div class="content-body">
-                        <p class="text-muted mb-15">Risk your Tokens on the Slot Machine. Tokens can be bought in the Super Store.</p>
-                        <div class="casino-wrapper">
-                            <div class="slot-machine">
-                                <div class="reels">
-                                    <div class="reel" id="reel1">🍒</div>
-                                    <div class="reel" id="reel2">🔔</div>
-                                    <div class="reel" id="reel3">💎</div>
+                        <p class="text-muted mb-15">Risk your Tokens on Games of Chance. Tokens can be bought in the Super Store.</p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            
+                            <!-- SLOTS -->
+                            <div class="casino-wrapper" style="margin:0;">
+                                <h3 style="margin-bottom:10px;">Slot Machine</h3>
+                                <div class="slot-machine">
+                                    <div class="reels">
+                                        <div class="reel" id="reel1">🍒</div>
+                                        <div class="reel" id="reel2">🔔</div>
+                                        <div class="reel" id="reel3">💎</div>
+                                    </div>
+                                    <div style="margin-top: 20px;">
+                                        <input type="number" id="bet-amount" class="bet-input" value="1" min="1" placeholder="Bet">
+                                        <button class="btn btn-accent" onclick="playSlots()">Spin</button>
+                                    </div>
+                                    <div id="slot-msg" class="slot-msg" style="margin-top: 15px; color: var(--text-muted);">Place your bet.</div>
                                 </div>
-                                <div style="margin-top: 20px;">
-                                    <input type="number" id="bet-amount" class="bet-input" value="1" min="1">
-                                    <button class="btn btn-accent" onclick="playSlots()">Spin (-Tokens)</button>
-                                </div>
-                                <div id="slot-msg" class="slot-msg" style="margin-top: 15px; color: var(--text-muted);">Place your bet.</div>
                             </div>
+                            
+                            <!-- ROULETTE -->
+                            <div class="casino-wrapper" style="margin:0;">
+                                <h3 style="margin-bottom:10px;">Roulette</h3>
+                                <div class="slot-machine">
+                                    <div style="font-size: 3rem; margin-bottom: 20px; font-weight:bold;" id="roulette-display">00</div>
+                                    <div style="display:flex; gap:10px; margin-bottom:15px; justify-content:center;">
+                                        <button class="btn" style="background:#8b0000;" onclick="playRoulette('red')">Red (2x)</button>
+                                        <button class="btn" style="background:#000;" onclick="playRoulette('black')">Black (2x)</button>
+                                        <button class="btn" style="background:#006400;" onclick="playRoulette('green')">Green (14x)</button>
+                                    </div>
+                                    <div>
+                                        <input type="number" id="roulette-bet" class="bet-input" value="1" min="1" placeholder="Bet">
+                                    </div>
+                                    <div id="roulette-msg" class="slot-msg" style="margin-top: 15px; color: var(--text-muted);">Choose a color.</div>
+                                </div>
+                            </div>
+
+                            <!-- BLACKJACK -->
+                            <div class="casino-wrapper" style="margin:0; grid-column: span 2;">
+                                <h3 style="margin-bottom:10px;">Blackjack</h3>
+                                <div class="slot-machine" style="padding: 20px;">
+                                    <div style="display:flex; justify-content:space-around; margin-bottom:20px;">
+                                        <div>
+                                            <div class="text-muted mb-10">Dealer Hand</div>
+                                            <div id="bj-dealer" style="font-size:2rem; letter-spacing:5px;">🂠 🂠</div>
+                                            <div id="bj-dealer-score" class="text-muted" style="margin-top:5px;">Score: ?</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-muted mb-10">Player Hand</div>
+                                            <div id="bj-player" style="font-size:2rem; letter-spacing:5px;">🂠 🂠</div>
+                                            <div id="bj-player-score" class="text-muted" style="margin-top:5px;">Score: 0</div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div id="bj-controls-start">
+                                        <input type="number" id="bj-bet" class="bet-input" value="1" min="1" placeholder="Bet">
+                                        <button class="btn btn-primary" onclick="bjStart()">Deal</button>
+                                    </div>
+                                    
+                                    <div id="bj-controls-play" class="hidden" style="display:flex; gap:10px; justify-content:center;">
+                                        <button class="btn btn-success" onclick="socket.emit('bj_hit')">Hit</button>
+                                        <button class="btn btn-danger" onclick="socket.emit('bj_stand')">Stand</button>
+                                    </div>
+                                    
+                                    <div id="bj-msg" class="slot-msg" style="margin-top: 15px; color: var(--text-muted);">Place your bet to start.</div>
+                                </div>
+                            </div>
+                            
                         </div>
                     </div>
                 </section>
@@ -282,7 +337,18 @@
                 <section id="bounties" class="tab-content">
                     <div class="content-header">Bounty Board</div>
                     <div class="content-body">
-                        <p class="text-muted mb-15">Accept assassination contracts for massive payouts. Target vanishes if claimed. Costs 50 Energy.</p>
+                        <p class="text-muted mb-15">Place contracts on other players, or claim them by attacking the targets on the Streets.</p>
+                        
+                        <div class="action-card" style="flex-direction:column; align-items:stretch; margin-bottom: 20px;">
+                            <h3 style="margin-bottom:10px;">Place a Bounty</h3>
+                            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                                <input type="text" id="bounty-target" class="chat-input" placeholder="Target Username" style="flex:2;">
+                                <input type="number" id="bounty-reward" class="chat-input" placeholder="Reward ($)" value="1000" min="1000" style="flex:1;">
+                                <input type="number" id="bounty-qty" class="chat-input" placeholder="Qty" value="1" min="1" max="200" style="flex:1;">
+                            </div>
+                            <button class="btn btn-danger" onclick="placeBounty()">Place Bounty</button>
+                        </div>
+
                         <div id="bounties-container" class="action-list">
                             <!-- Populated by JS -->
                         </div>
