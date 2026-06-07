@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Syndicate</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- LOGIN / REGISTER OVERLAY -->
+    <div id="auth-overlay" class="overlay" style="z-index: 10000; background: var(--bg-dark);">
+        <div class="overlay-content" style="max-width: 400px;">
+            <h1 style="color: var(--primary); font-family: 'Courier New', Courier, monospace; margin-bottom: 20px;">NEON SYNDICATE</h1>
+            <p class="text-muted mb-15">Sign in to your persistent account.</p>
+            
+            <input type="text" id="auth-username" class="chat-input" placeholder="Username" style="margin-bottom: 10px;">
+            <input type="password" id="auth-password" class="chat-input" placeholder="Password" style="margin-bottom: 20px;">
+            
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-primary" onclick="attemptAuth('login')" style="flex:1;">Login</button>
+                <button class="btn btn-accent" onclick="attemptAuth('register')" style="flex:1;">Register</button>
+            </div>
+            <p id="auth-error" class="text-danger mt-10" style="font-size: 0.85rem; height: 15px;"></p>
+        </div>
+    </div>
+
+    <div class="app-container hidden" id="app-container" style="display: flex; width: 100%; height: 100%;">
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+            <div class="sidebar-section info-section">
+                <div class="player-name">Player</div>
+                <div class="player-level" id="location-display">📍 Torn City</div>
+                <div class="player-money" id="cash-display">$100</div>
+                <div class="player-bank" id="bank-display">Bank: $0</div>
+                <div class="player-tokens" id="tokens-display">Tokens: 0</div>
+                <div class="player-property" id="property-display" style="color: #aaa; font-size: 0.85rem; margin-top: 8px;">🏠 Shack</div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-title">Areas</div>
+                <ul class="nav-links">
+                    <li><button class="nav-btn active" data-tab="home">🏠 Home</button></li>
+                    <li><button class="nav-btn" data-tab="items">🎒 Items</button></li>
+                    <li><button class="nav-btn" data-tab="city">🏙️ City Map</button></li>
+                    <li><button class="nav-btn" data-tab="newspaper">📰 Newspaper</button></li>
+                    <li><button class="nav-btn" data-tab="hospital">🏥 Hospital</button></li>
+                    <li><button class="nav-btn" data-tab="casino">🎰 Casino</button></li>
+                    <li><button class="nav-btn" data-tab="trade">⚖️ Trade</button></li>
+                    <li><button class="nav-btn" data-tab="stocks">📈 Stock Market</button></li>
+                    <li><button class="nav-btn" data-tab="university">🎓 University</button></li>
+                    <li><button class="nav-btn" data-tab="streets">🔪 Streets</button></li>
+                    <li><button class="nav-btn" data-tab="bounties">🎯 Bounties</button></li>
+                    <li><button class="nav-btn" data-tab="crimes">🦹 Crimes</button></li>
+                    <li><button class="nav-btn" data-tab="gym">🏋️ Gym</button></li>
+                </ul>
+            </div>
+            
+            <div class="sidebar-section">
+                <div class="section-title">Travel</div>
+                <ul class="nav-links">
+                    <li><button class="nav-btn" data-tab="travel">✈️ Travel Agency</button></li>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="main-column">
+
+            <!-- Top Status Bars -->
+            <div class="status-bars">
+                <div class="bar-container">
+                    <span class="bar-title">Energy</span>
+                    <div class="bar-bg"><div class="bar-fill bg-energy" id="energy-bar" style="width: 100%;"></div></div>
+                    <span class="bar-text" id="energy-text">100/100</span>
+                </div>
+                <div class="bar-container">
+                    <span class="bar-title">Nerve</span>
+                    <div class="bar-bg"><div class="bar-fill bg-nerve" id="nerve-bar" style="width: 100%;"></div></div>
+                    <span class="bar-text" id="nerve-text">10/10</span>
+                </div>
+                <div class="bar-container">
+                    <span class="bar-title">Happy</span>
+                    <div class="bar-bg"><div class="bar-fill bg-happy" id="happy-bar" style="width: 100%;"></div></div>
+                    <span class="bar-text" id="happy-text">100/100</span>
+                </div>
+                <div class="bar-container">
+                    <span class="bar-title">Life</span>
+                    <div class="bar-bg"><div class="bar-fill bg-life" id="life-bar" style="width: 100%;"></div></div>
+                    <span class="bar-text" id="life-text">100/100</span>
+                </div>
+            </div>
+
+            <!-- Content Area -->
+            <div class="content-area">
+                
+                <!-- Home Tab -->
+                <section id="home" class="tab-content active">
+                    <div class="content-header">Your Stats</div>
+                    <div class="content-body">
+                        <ul class="stat-list">
+                            <li><span>Strength</span> <span id="stat-str">10</span></li>
+                            <li><span>Defense</span> <span id="stat-def">10</span></li>
+                            <li><span>Speed</span> <span id="stat-spd">10</span></li>
+                            <li><span>Dexterity</span> <span id="stat-dex">10</span></li>
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- Items Tab -->
+                <section id="items" class="tab-content">
+                    <div class="content-header">Your Inventory <span id="inv-count" class="text-muted" style="float:right; font-size:0.8rem;">(0/7)</span></div>
+                    <div class="content-body">
+                        <div id="inventory-list" class="action-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- City Map Tab -->
+                <section id="city" class="tab-content">
+                    <div class="content-header">City Map</div>
+                    <div class="content-body">
+                        <div id="city-map" class="visual-map" style="background-image: url('C:/Users/afaqa/.gemini/antigravity-ide/brain/8a6cbf4e-81a8-40d8-92e2-94fb2fffdcf4/neon_city_map_1780845847695.png');"></div>
+                        
+                        <!-- Dynamic Panel for City Node Actions -->
+                        <div id="city-action-panel" class="action-card hidden" style="margin-top: 20px; flex-direction: column; align-items: stretch;">
+                            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px;">
+                                <h3 id="ca-title">Title</h3>
+                                <button class="btn" onclick="closeCityAction()">Close</button>
+                            </div>
+                            <p id="ca-desc" class="text-muted mb-15">Desc</p>
+                            <div id="ca-controls"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Newspaper Tab -->
+                <section id="newspaper" class="tab-content">
+                    <div class="newspaper-wrap">
+                        <div class="newspaper-header">
+                            <div class="emblem">★★★★★</div>
+                            <div class="date-price-wrap">
+                                <div class="price left">Established 2026</div>
+                                <div class="date right">An Illustrated Weekly Newspaper</div>
+                            </div>
+                        </div>
+                        <div class="newspaper-body-wrap">
+                            <div class="lead-article" id="news-lead">
+                                <div class="news-image" style="background-color: #333; height: 200px; display:flex; align-items:center; justify-content:center; color:#666; margin-bottom: 15px;">[Lead Image]</div>
+                                <h2 style="font-family: serif; font-size: 2rem; margin-bottom: 10px;">Mayor Announces Crackdown</h2>
+                                <p style="font-family: serif; color: #ccc;">The city has seen a massive spike in street crimes over the past few weeks. In response, local authorities have vowed to increase patrols.</p>
+                            </div>
+                            <div class="news-snippets" id="news-snippets" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; border-top: 2px solid #444; padding-top: 20px;">
+                                <div>
+                                    <h4 style="font-family: serif; margin-bottom: 5px;">Casino Rigged?</h4>
+                                    <p style="font-size: 0.85rem; color: var(--text-muted);">An insider exposes the truth behind the slot machines...</p>
+                                </div>
+                                <div>
+                                    <h4 style="font-family: serif; margin-bottom: 5px;">Stocks Plunge!</h4>
+                                    <p style="font-size: 0.85rem; color: var(--text-muted);">Cyber Dynamics lost 50% of its value in a single day of trading.</p>
+                                </div>
+                                <div>
+                                    <h4 style="font-family: serif; margin-bottom: 5px;">Plushie Craze</h4>
+                                    <p style="font-size: 0.85rem; color: var(--text-muted);">Imports from South Africa are selling for record highs.</p>
+                                </div>
+                                <div>
+                                    <h4 style="font-family: serif; margin-bottom: 5px;">Unknown Assassin</h4>
+                                    <p style="font-size: 0.85rem; color: var(--text-muted);">A high-profile target was found dead. The killer remains at large.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Hospital Tab -->
+                <section id="hospital" class="tab-content">
+                    <div class="content-header">Hospital</div>
+                    <div class="content-body">
+                        <p class="text-muted mb-15">List of residents currently recovering from grievous injuries.</p>
+                        <div class="action-list" id="hospital-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Casino Tab -->
+                <section id="casino" class="tab-content">
+                    <div class="content-header">Casino</div>
+                    <div class="content-body">
+                        <p class="text-muted mb-15">Risk your Tokens on the Slot Machine. Tokens can be bought in the Super Store.</p>
+                        <div class="casino-wrapper">
+                            <div class="slot-machine">
+                                <div class="reels">
+                                    <div class="reel" id="reel1">🍒</div>
+                                    <div class="reel" id="reel2">🔔</div>
+                                    <div class="reel" id="reel3">💎</div>
+                                </div>
+                                <div style="margin-top: 20px;">
+                                    <input type="number" id="bet-amount" class="bet-input" value="1" min="1">
+                                    <button class="btn btn-accent" onclick="playSlots()">Spin (-Tokens)</button>
+                                </div>
+                                <div id="slot-msg" class="slot-msg" style="margin-top: 15px; color: var(--text-muted);">Place your bet.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Trade Tab -->
+                <section id="trade" class="tab-content">
+                    <div class="content-header">Item Market</div>
+                    <div class="content-body">
+                        <p class="text-muted mb-15">List items on the market at custom prices. Wait for buyers to purchase them.</p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            <div>
+                                <h3>Your Inventory</h3>
+                                <div id="trade-inventory-list" class="action-list mt-10">
+                                    <!-- Populate to sell -->
+                                </div>
+                            </div>
+                            <div>
+                                <h3>Active Listings</h3>
+                                <div id="trade-market-list" class="action-list mt-10 mb-15">
+                                    <!-- Market listings -->
+                                </div>
+                                
+                                <h3>Recent Trades Log</h3>
+                                <div id="trade-log-list" class="action-list mt-10" style="max-height: 200px; overflow-y: auto;">
+                                    <!-- Log -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Stock Market Tab -->
+                <section id="stocks" class="tab-content">
+                    <div class="content-header">Stock Exchange</div>
+                    <div class="content-body">
+                        <p class="text-muted mb-15">Buy low, sell high. Prices fluctuate live based on market conditions.</p>
+                        <div id="stocks-container" class="action-list">
+                            <!-- Populated by JS -->
+                        </div>
+                        <h3 class="mt-20">Your Portfolio</h3>
+                        <div id="portfolio-container" class="action-list mt-10">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- University Tab -->
+                <section id="university" class="tab-content">
+                    <div class="content-header">University</div>
+                    <div class="content-body">
+                        <p class="text-muted mb-15">Enroll in courses to gain permanent life buffs.</p>
+                        
+                        <div id="active-course-panel" class="action-card hidden" style="flex-direction:column; align-items:stretch; border-color:var(--primary); margin-bottom: 20px;">
+                            <h3 id="ac-name" style="margin-bottom:10px;">Course Name</h3>
+                            <div class="flight-progress" style="margin:0;"><div class="flight-fill" id="ac-bar"></div></div>
+                            <div class="text-muted text-center mt-10" id="ac-time">0s remaining</div>
+                        </div>
+
+                        <div id="courses-container" class="action-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Streets Tab -->
+                <section id="streets" class="tab-content">
+                    <div class="content-header">The Streets</div>
+                    <div class="content-body">
+                        <p class="text-muted mb-15">Attack people on the streets for cash and respect. Costs 25 Energy.</p>
+                        <div id="streets-container" class="action-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Bounties Tab -->
+                <section id="bounties" class="tab-content">
+                    <div class="content-header">Bounty Board</div>
+                    <div class="content-body">
+                        <p class="text-muted mb-15">Accept assassination contracts for massive payouts. Target vanishes if claimed. Costs 50 Energy.</p>
+                        <div id="bounties-container" class="action-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Crimes Tab -->
+                <section id="crimes" class="tab-content">
+                    <div class="content-header">Crimes</div>
+                    <div class="content-body">
+                        <div id="crimes-container"></div>
+                        <div id="crime-log" class="hidden"></div>
+                    </div>
+                </section>
+
+                <!-- Gym Tab -->
+                <section id="gym" class="tab-content">
+                    <div class="content-header">The Gym</div>
+                    <div class="content-body">
+                        <p class="text-muted mb-15">Train your stats here. Costs 5 Energy per train. Gains are multiplied by your Happiness!</p>
+                        <div id="gym-container" class="action-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Travel Tab -->
+                <section id="travel" class="tab-content">
+                    <div class="content-header">Travel Agency</div>
+                    <div class="content-body">
+                        <p class="text-muted mb-15">Fly to other countries to buy exotic goods, then fly home to sell them for massive profit!</p>
+                        <div id="world-map" class="map-grid"></div>
+                    </div>
+                </section>
+
+            </div>
+            
+            <!-- OVERLAYS -->
+            <div id="jail-overlay" class="overlay hidden">
+                <div class="overlay-content">
+                    <h2>BUSTED!</h2>
+                    <p>You are in jail for your crimes.</p>
+                    <div class="big-timer" id="jail-time">0</div>
+                    <p class="text-muted">Wait for your sentence to finish.</p>
+                </div>
+            </div>
+            
+            <div id="flight-overlay" class="overlay hidden">
+                <div class="overlay-content">
+                    <h2>IN TRANSIT</h2>
+                    <p>Flying to <span id="flight-dest"></span>...</p>
+                    <div class="flight-progress"><div class="flight-fill" id="flight-bar"></div></div>
+                    <div class="big-timer" id="flight-time">0</div>
+                </div>
+            </div>
+            
+        </main>
+    </div>
+
+    <!-- CUSTOM MODAL SYSTEM -->
+    <div id="custom-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <div class="modal-header" id="modal-title">Alert</div>
+            <div class="modal-body" id="modal-body">This is a message.</div>
+            <div class="modal-footer">
+                <button class="btn hidden" id="modal-cancel">Cancel</button>
+                <button class="btn btn-primary" id="modal-confirm">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CHAT WINDOW -->
+    <div id="chat-window" class="chat-window">
+        <div class="chat-header" onclick="toggleChat()">
+            <span>💬 Global Chat</span>
+            <span id="chat-toggle-icon">▼</span>
+        </div>
+        <div class="chat-body" id="chat-body">
+            <!-- Messages go here -->
+        </div>
+        <div class="chat-input-container">
+            <input type="text" class="chat-input" id="chat-input" placeholder="Type a message..." autocomplete="off">
+        </div>
+    </div>
+
+    <!-- PHONE APP UI -->
+    <div id="phone-trigger" class="phone-trigger" onclick="togglePhone()">
+        📱
+        <div id="phone-badge" class="phone-badge hidden">0</div>
+    </div>
+
+    <div id="phone-app" class="phone-app collapsed">
+        <div class="phone-screen">
+            <div class="phone-header">
+                <span>Notifications</span>
+                <button class="btn" style="padding: 2px 8px; font-size: 0.8rem;" onclick="togglePhone()">X</button>
+            </div>
+            <div class="phone-body" id="phone-notifications">
+                <p class="text-muted text-center mt-20" style="font-size: 0.8rem;">No new notifications.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="constants.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
