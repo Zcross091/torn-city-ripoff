@@ -20,8 +20,7 @@ Build your stats in the gym, trade items on the global market, place assassinati
 
 You can start the entire environment (both the game client and the backend server) automatically with a single command.
 
-1. Ensure you have Node.js installed.
-2. Run the setup script in your terminal:
+1. Run the setup script in your terminal:
 
 ```bash
 bash setup.sh
