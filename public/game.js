@@ -48,6 +48,13 @@ const state = {
 
 const socket = io();
 
+socket.on('connect', () => {
+    const token = localStorage.getItem('neon_token');
+    if (token) {
+        socket.emit('login_token', token);
+    }
+});
+
 // DOM Elements
 const els = {
     cash: document.getElementById('cash-display'), bank: document.getElementById('bank-display'),
@@ -128,14 +135,23 @@ socket.on('auth_error', msg => {
     document.getElementById('auth-error').innerText = msg;
 });
 
+window.logout = function() {
+    localStorage.removeItem('neon_token');
+    location.reload();
+}
+
 socket.on('auth_success', data => {
     // If registered, auto-login
+    if (data.token) localStorage.setItem('neon_token', data.token);
     socket.emit('login', { username: document.getElementById('auth-username').value, password: document.getElementById('auth-password').value });
 });
 
 socket.on('login_success', data => {
     document.getElementById('auth-overlay').classList.add('hidden');
     document.getElementById('app-container').classList.remove('hidden');
+    if (data.token) {
+        localStorage.setItem('neon_token', data.token);
+    }
     
     // OVERWRITE STATE WITH DB DATA
     state.cash = data.cash;
@@ -632,6 +648,9 @@ socket.on('bazaar_data', data => {
 
 socket.on('market_data', data => {
     state.marketListings = data;
+    liveMarket = data;
+    
+    // Update Trade UI market list if it exists
     const list = document.getElementById('trade-market-list');
     if (list) {
         list.innerHTML = '';
@@ -640,24 +659,23 @@ socket.on('market_data', data => {
             list.innerHTML += `<div class="action-card mt-10"><div>${item.icon} ${item.name} <span class="text-muted">by ${m.sellerName}</span></div><button class="btn btn-success" onclick="socket.emit('buy_market_item', ${m.id})">Buy $${m.price.toLocaleString()}</button></div>`;
         });
     }
-});
-    liveMarket = data;
+
+    // Update Player Market container if it exists
     const container = document.getElementById('player-market-container');
-    if (!container) return;
-    container.innerHTML = '';
-    
-    if (data.length === 0) {
-        container.innerHTML = '<p class="text-muted">The market is empty.</p>';
-        return;
+    if (container) {
+        container.innerHTML = '';
+        if (data.length === 0) {
+            container.innerHTML = '<p class="text-muted">The market is empty.</p>';
+        } else {
+            data.forEach(m => {
+                const itemDef = ITEMS.find(i => i.id === m.itemId);
+                const card = document.createElement('div'); card.className = 'action-card';
+                card.innerHTML = `<div class="item-info"><span class="icon">${itemDef?itemDef.icon:'📦'}</span><div><strong>${itemDef?itemDef.name:'Unknown'}</strong> <span class="badge" style="background:var(--accent);">$${m.price.toLocaleString()}</span><div class="text-muted" style="font-size:0.8rem;">Seller: ${m.sellerName}</div></div></div>
+                    <button class="btn btn-success" onclick="socket.emit('buy_market_item', ${m.id})">Buy</button>`;
+                container.appendChild(card);
+            });
+        }
     }
-    
-    data.forEach(m => {
-        const itemDef = ITEMS.find(i => i.id === m.itemId);
-        const card = document.createElement('div'); card.className = 'action-card';
-        card.innerHTML = `<div class="item-info"><span class="icon">${itemDef?itemDef.icon:'📦'}</span><div><strong>${itemDef?itemDef.name:'Unknown'}</strong> <span class="badge" style="background:var(--accent);">$${m.price.toLocaleString()}</span><div class="text-muted" style="font-size:0.8rem;">Seller: ${m.sellerName}</div></div></div>
-            <button class="btn btn-success" onclick="socket.emit('buy_market_item', ${m.id})">Buy</button>`;
-        container.appendChild(card);
-    });
 });
 
 window.buyItem = function(id) {
@@ -903,7 +921,7 @@ function renderPlayerMarket() {
         if (qty > 0) {
             const item = ITEMS.find(i => i.id === itemId);
             invList.innerHTML += `<div class="action-card" style="padding:10px; margin-bottom:5px;"><div>${item.icon} ${item.name} <span class="badge">x${qty}</span></div>
-            <div style="display:flex; gap:5px; margin-top:5px;"><input type="number" id="price_${itemId}" placeholder="Price" class="chat-input" style="width:80px;"><button class="btn btn-accent" onclick="listMarketItem('${itemId}')">List</button></div></div>`;
+            <div style="display:flex; gap:5px; margin-top:5px;"><input type="number" id="qty_${itemId}" placeholder="Qty" value="1" class="chat-input" style="width:60px;"><input type="number" id="price_${itemId}" placeholder="Price" class="chat-input" style="width:80px;"><button class="btn btn-accent" onclick="listMarketItem('${itemId}')">List</button></div></div>`;
         }
     }
 }
@@ -925,7 +943,7 @@ function renderBazaar() {
             if (qty > 0) {
                 const item = ITEMS.find(i => i.id === itemId);
                 invList.innerHTML += `<div class="action-card" style="padding:10px; margin-bottom:5px;"><div>${item.icon} ${item.name} <span class="badge">x${qty}</span></div>
-                <div style="display:flex; gap:5px; margin-top:5px;"><input type="number" id="bzprice_${itemId}" placeholder="Price" class="chat-input" style="width:80px;"><button class="btn btn-success" onclick="listBazaarItem('${itemId}')">List</button></div></div>`;
+                <div style="display:flex; gap:5px; margin-top:5px;"><input type="number" id="bzqty_${itemId}" placeholder="Qty" value="1" class="chat-input" style="width:60px;"><input type="number" id="bzprice_${itemId}" placeholder="Price" class="chat-input" style="width:80px;"><button class="btn btn-success" onclick="listBazaarItem('${itemId}')">List</button></div></div>`;
             }
         }
     }
@@ -954,12 +972,14 @@ function renderTrade() {
 
 window.listBazaarItem = function(itemId) {
     const price = document.getElementById(`bzprice_${itemId}`).value;
-    socket.emit('list_bazaar_item', { itemId: itemId, price: price });
+    const qty = document.getElementById(`bzqty_${itemId}`).value;
+    socket.emit('list_bazaar_item', { itemId: itemId, price: price, qty: qty });
 }
 
 window.listMarketItem = function(itemId) {
     const price = document.getElementById(`price_${itemId}`).value;
-    socket.emit('list_market_item', { itemId: itemId, price: price });
+    const qty = document.getElementById(`qty_${itemId}`).value;
+    socket.emit('list_market_item', { itemId: itemId, price: price, qty: qty });
 }
 
 window.searchProfile = function() {
@@ -1038,21 +1058,7 @@ function buyItem(itemId) {
         showModal("Error", "Not enough cash.");
     }
 }
-window.useItem = function(itemId) {
-    if (state.inventory[itemId] > 0) {
-        state.inventory[itemId]--; const item = ITEMS.find(i => i.id === itemId);
-        if (item.type === 'energy') state.bars.energy.current = Math.min(state.bars.energy.max, state.bars.energy.current + item.val);
-        else if (item.type === 'life') state.bars.life.current = Math.min(state.bars.life.max, state.bars.life.current + item.val);
-        else if (item.type === 'booster') state.maxInv += item.val;
-        else if (item.type === 'tokens') state.tokens += item.val;
-        updateUI(); renderInventory(); renderTrade();
-    }
-}
-window.sellItem = function(itemId) {
-    if (state.inventory[itemId] > 0) {
-        state.inventory[itemId]--; state.cash += ITEMS.find(i => i.id === itemId).sell; updateUI(); renderInventory(); renderTrade();
-    }
-}
+
 
 function spawnCityFind() {
     const pool = ITEMS.filter(i => i.loc === 'Torn City');
@@ -1100,7 +1106,7 @@ function openCityAction(node) {
         for (const [itemId, qty] of Object.entries(state.inventory)) {
             if (qty > 0) {
                 const item = ITEMS.find(i => i.id === itemId);
-                html += `<div class="action-card"><div>${item.icon} ${item.name} (x${qty})</div> <button class="btn btn-danger" onclick="sellItem('${item.id}');openCityAction(CITY_NODES.find(n=>n.id==='pawn'));">Sell $${item.sell}</button></div>`;
+                html += `<div class="action-card"><div>${item.icon} ${item.name} (x${qty})</div> <button class="btn btn-danger" onclick="quickSellItem('${item.id}');openCityAction(CITY_NODES.find(n=>n.id==='pawn'));">Sell $${item.sell}</button></div>`;
             }
         }
         html += '</div>';
