@@ -4,6 +4,25 @@ const { Server } = require('socket.io');
 const bcrypt = require('bcrypt');
 const { db } = require('./db');
 
+let ITEMS = [];
+try { ITEMS = require('./constants.js').ITEMS; } 
+catch(e) { try { ITEMS = require('./public/constants.js').ITEMS; } catch(e2) {} }
+
+// Inflation Base Tracker
+let liveCityMarket = ITEMS.map(i => ({ id: i.id, baseCost: i.cost, currentCost: i.cost }));
+
+setInterval(() => {
+    // Inflation loop: random walk
+    liveCityMarket.forEach(item => {
+        if(item.baseCost > 0) {
+            const volatility = item.baseCost * 0.05;
+            const change = (Math.random() * volatility * 2) - volatility;
+            item.currentCost = Math.max(1, Math.floor(item.currentCost + change));
+        }
+    });
+    io.emit('city_market_update', liveCityMarket);
+}, 60000); // update every 60s
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
@@ -42,6 +61,7 @@ io.on('connection', (socket) => {
                 
                 row.inventory = inventory;
                 socket.emit('login_success', row);
+                socket.emit('city_market_update', liveCityMarket);
                 io.emit('chat_message', { author: 'System', text: `${row.username} logged in.` });
                 io.emit('active_players', Object.values(activeUsers));
             });
@@ -163,15 +183,23 @@ io.on('connection', (socket) => {
     socket.on('buy_npc_item', (itemId) => {
         const user = activeUsers[socket.id];
         if (!user) return;
-        const item = ITEMS.find(i => i.id === itemId);
-        if (!item) return;
+        const liveItem = liveCityMarket.find(i => i.id === itemId);
+        const itemDef = ITEMS.find(i => i.id === itemId);
+        if (!liveItem || !itemDef) return;
 
-        db.run('UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?', [item.cost, user.id, item.cost], function(err) {
-            if (this.changes === 0) return socket.emit('modal', { title: 'Error', msg: 'Not enough cash.' });
-            
-            db.run('INSERT INTO inventory (userId, itemId, qty) VALUES (?, ?, 1) ON CONFLICT(userId, itemId) DO UPDATE SET qty = qty + 1', [user.id, itemId], () => {
-                socket.emit('inv_update', { itemId: itemId, change: 1, cashChange: -item.cost });
-                socket.emit('modal', { title: 'Purchased', msg: `Bought ${item.name} for $${item.cost.toLocaleString()}.` });
+        const cost = liveItem.currentCost;
+
+        db.get('SELECT dailyItemsBought FROM users WHERE id = ?', [user.id], (err, row) => {
+            if (!row) return;
+            if (row.dailyItemsBought >= 100) return socket.emit('modal', { title: 'Error', msg: 'You have reached your limit of 100 items bought from the city market today.' });
+
+            db.run('UPDATE users SET cash = cash - ?, dailyItemsBought = dailyItemsBought + 1 WHERE id = ? AND cash >= ?', [cost, user.id, cost], function(err) {
+                if (this.changes === 0) return socket.emit('modal', { title: 'Error', msg: 'Not enough cash.' });
+                
+                db.run('INSERT INTO inventory (userId, itemId, qty) VALUES (?, ?, 1) ON CONFLICT(userId, itemId) DO UPDATE SET qty = qty + 1', [user.id, itemId], () => {
+                    socket.emit('inv_update', { itemId: itemId, change: 1, cashChange: -cost });
+                    socket.emit('modal', { title: 'Purchased', msg: `Bought ${itemDef.name} for $${cost.toLocaleString()}.` });
+                });
             });
         });
     });
@@ -189,11 +217,54 @@ io.on('connection', (socket) => {
             if (item.type === 'energy') statUpdate = 'energy = Math.min(100, energy + 50)';
             if (item.type === 'life') statUpdate = 'life = Math.min(100, life + 100)';
             
+            
             if (statUpdate !== '') {
-                // Simplified apply
+                // Apply stats update directly here instead of eval
+                if (item.type === 'energy') db.run('UPDATE users SET energy = MIN(100, energy + 50) WHERE id = ?', [user.id]);
+                if (item.type === 'life') db.run('UPDATE users SET life = MIN(100, life + 100) WHERE id = ?', [user.id]);
             }
             
             socket.emit('inv_update', { itemId: itemId, change: -1, used: true, type: item.type, val: item.val });
+        });
+    });
+
+    socket.on('quick_sell_item', (itemId) => {
+        const user = activeUsers[socket.id];
+        if (!user) return;
+        const item = ITEMS.find(i => i.id === itemId);
+        if (!item) return;
+
+        db.run('UPDATE inventory SET qty = qty - 1 WHERE userId = ? AND itemId = ? AND qty >= 1', [user.id, itemId], function(err) {
+            if (this.changes === 0) return socket.emit('modal', { title: 'Error', msg: 'You do not own this item.' });
+            const sellPrice = Math.floor(item.cost * 0.5);
+            db.run('UPDATE users SET cash = cash + ? WHERE id = ?', [sellPrice, user.id]);
+            socket.emit('inv_update', { itemId: itemId, change: -1, cashChange: sellPrice });
+            socket.emit('modal', { title: 'Sold', msg: `Sold ${item.name} for $${sellPrice.toLocaleString()} (50% market value).` });
+        });
+    });
+
+    socket.on('send_item', (data) => {
+        const user = activeUsers[socket.id];
+        if (!user || !data.target || !data.itemId) return;
+
+        db.get('SELECT id FROM users WHERE username = ? COLLATE NOCASE', [data.target], (err, targetDb) => {
+            if (!targetDb) return socket.emit('modal', { title: 'Error', msg: 'Target player not found.' });
+            if (targetDb.id === user.id) return socket.emit('modal', { title: 'Error', msg: 'You cannot send items to yourself.' });
+
+            db.run('UPDATE inventory SET qty = qty - 1 WHERE userId = ? AND itemId = ? AND qty >= 1', [user.id, data.itemId], function(err) {
+                if (this.changes === 0) return socket.emit('modal', { title: 'Error', msg: 'You do not have this item.' });
+                
+                db.run('INSERT INTO inventory (userId, itemId, qty) VALUES (?, ?, 1) ON CONFLICT(userId, itemId) DO UPDATE SET qty = qty + 1', [targetDb.id, data.itemId], () => {
+                    socket.emit('inv_update', { itemId: data.itemId, change: -1 });
+                    socket.emit('modal', { title: 'Sent', msg: `Item sent to ${data.target}.` });
+                    
+                    const targetSocketId = Object.keys(activeUsers).find(key => activeUsers[key].id === targetDb.id);
+                    if (targetSocketId) {
+                        io.to(targetSocketId).emit('inv_update', { itemId: data.itemId, change: 1 });
+                        io.to(targetSocketId).emit('modal', { title: 'Item Received', msg: `${user.username} sent you an item!` });
+                    }
+                });
+            });
         });
     });
 
@@ -238,8 +309,10 @@ io.on('connection', (socket) => {
 
                 db.run('INSERT INTO inventory (userId, itemId, qty) VALUES (?, ?, 1) ON CONFLICT(userId, itemId) DO UPDATE SET qty = qty + 1', [buyer.id, marketRow.itemId]);
 
-                // Pay seller
-                db.run('UPDATE users SET cash = cash + ? WHERE id = ?', [marketRow.price, marketRow.userId]);
+                // Pay seller (10% fee)
+                const fee = Math.floor(marketRow.price * 0.10);
+                const sellerRevenue = marketRow.price - fee;
+                db.run('UPDATE users SET cash = cash + ? WHERE id = ?', [sellerRevenue, marketRow.userId]);
                 
                 // Remove from market
                 db.run('DELETE FROM market WHERE id = ?', [marketId]);
@@ -251,12 +324,109 @@ io.on('connection', (socket) => {
                 // Notify Seller
                 const sellerSocketId = Object.keys(activeUsers).find(key => activeUsers[key].id === marketRow.userId);
                 if (sellerSocketId) {
-                    io.to(sellerSocketId).emit('modal', { title: 'Item Sold!', msg: `Someone bought your item for $${marketRow.price.toLocaleString()}.` });
-                    io.to(sellerSocketId).emit('update_cash', marketRow.price); 
+                    io.to(sellerSocketId).emit('modal', { title: 'Item Sold!', msg: `Someone bought your item for $${marketRow.price.toLocaleString()}. After 10% fee, you received $${sellerRevenue.toLocaleString()}.` });
+                    io.to(sellerSocketId).emit('update_cash', sellerRevenue); 
                 }
             });
         });
     });
+
+    // ---- BAZAAR ----
+    socket.on('bazaar_unlock', () => {
+        const user = activeUsers[socket.id];
+        if(!user) return;
+        db.run('UPDATE users SET bazaarUnlocked = 1 WHERE id = ?', [user.id], () => {
+            socket.emit('modal', { title: 'Bazaar Unlocked!', msg: 'Thank you for your $5 payment. You can now sell items in the Bazaar tax-free forever!' });
+            socket.emit('bazaar_unlocked_success');
+        });
+    });
+
+    function broadcastBazaar() {
+        db.all(`SELECT b.id, b.itemId, b.price, u.username as sellerName 
+                FROM bazaar b JOIN users u ON b.userId = u.id 
+                ORDER BY b.price ASC`, [], (err, rows) => {
+            if (!err) io.emit('bazaar_data', rows);
+        });
+    }
+
+    socket.on('get_bazaar', () => broadcastBazaar());
+
+    socket.on('list_bazaar_item', (data) => {
+        const user = activeUsers[socket.id];
+        if (!user) return;
+        db.get('SELECT bazaarUnlocked FROM users WHERE id = ?', [user.id], (err, row) => {
+            if (!row || row.bazaarUnlocked === 0) return socket.emit('modal', { title: 'Error', msg: 'You must unlock the Bazaar first.' });
+            
+            const price = parseInt(data.price);
+            if (price <= 0) return socket.emit('modal', { title: 'Error', msg: 'Price must be positive.' });
+
+            db.run('UPDATE inventory SET qty = qty - 1 WHERE userId = ? AND itemId = ? AND qty >= 1', [user.id, data.itemId], function(err) {
+                if (this.changes === 0) return socket.emit('modal', { title: 'Error', msg: 'You do not have this item.' });
+                db.run('INSERT INTO bazaar (userId, itemId, price) VALUES (?, ?, ?)', [user.id, data.itemId, price], () => {
+                    socket.emit('inv_update', { itemId: data.itemId, change: -1 });
+                    broadcastBazaar();
+                    socket.emit('modal', { title: 'Listed', msg: 'Item listed in your Bazaar!' });
+                });
+            });
+        });
+    });
+
+    socket.on('buy_bazaar_item', (bazaarId) => {
+        const buyer = activeUsers[socket.id];
+        if (!buyer) return;
+
+        db.get('SELECT * FROM bazaar WHERE id = ?', [bazaarId], (err, row) => {
+            if (!row) return socket.emit('modal', { title: 'Error', msg: 'Item no longer exists.' });
+            if (row.userId === buyer.id) return socket.emit('modal', { title: 'Error', msg: 'You cannot buy your own item.' });
+
+            db.run('UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?', [row.price, buyer.id, row.price], function(err) {
+                if (this.changes === 0) return socket.emit('modal', { title: 'Error', msg: 'Not enough cash.' });
+                db.run('INSERT INTO inventory (userId, itemId, qty) VALUES (?, ?, 1) ON CONFLICT(userId, itemId) DO UPDATE SET qty = qty + 1', [buyer.id, row.itemId]);
+                db.run('UPDATE users SET cash = cash + ? WHERE id = ?', [row.price, row.userId]); 
+                db.run('DELETE FROM bazaar WHERE id = ?', [bazaarId]);
+
+                socket.emit('inv_update', { itemId: row.itemId, change: 1, cashChange: -row.price });
+                broadcastBazaar();
+                socket.emit('modal', { title: 'Purchased', msg: `Bought from Bazaar for $${row.price.toLocaleString()}.` });
+                
+                const sellerSocketId = Object.keys(activeUsers).find(key => activeUsers[key].id === row.userId);
+                if (sellerSocketId) {
+                    io.to(sellerSocketId).emit('update_cash', row.price); 
+                }
+            });
+        });
+    });
+
+    // ---- PROFILES & SOCIAL ----
+    socket.on('search_user', (username) => {
+        db.get(`SELECT id, username, cash, tokens, location, property, str, def, spd, dex FROM users WHERE username = ? COLLATE NOCASE`, [username], (err, target) => {
+            if (!target) return socket.emit('modal', { title: 'Not Found', msg: 'User does not exist.' });
+            const totalStats = target.str + target.def + target.spd + target.dex;
+            socket.emit('profile_data', {
+                id: target.id, username: target.username,
+                totalStats: totalStats, location: target.location, property: target.property
+            });
+        });
+    });
+
+    socket.on('set_relationship', (data) => {
+        const user = activeUsers[socket.id];
+        if (!user || !data.targetId || user.id === data.targetId) return;
+        
+        db.run('DELETE FROM relationships WHERE userId = ? AND targetId = ?', [user.id, data.targetId], () => {
+            if (data.type === 'friend' || data.type === 'enemy') {
+                db.run('INSERT INTO relationships (userId, targetId, type) VALUES (?, ?, ?)', [user.id, data.targetId, data.type], () => {
+                    socket.emit('modal', { title: 'Social', msg: `Marked player as ${data.type}.` });
+                });
+            } else {
+                socket.emit('modal', { title: 'Social', msg: `Removed relationship.` });
+            }
+        });
+    });
+
+    // ---- TRADES ----
+    const pendingTrades = {}; // tradeId -> { status, ... }
+    
 
     // ---- CASINO ----
     function drawCard(deck) {
@@ -407,6 +577,94 @@ io.on('connection', (socket) => {
         
         socket.emit('bj_update', { pHand: user.bj.pHand, pScore: pScore, dHand: user.bj.dHand, dScore: dScore, status: status, netChange: netChange });
         delete user.bj;
+    });
+
+    // ---- CRASH ----
+    socket.on('crash_start', (bet) => {
+        const user = activeUsers[socket.id];
+        if (!user) return;
+        bet = parseInt(bet);
+        if (isNaN(bet) || bet <= 0) return socket.emit('casino_error', 'Invalid bet.');
+        
+        db.run('UPDATE users SET tokens = tokens - ? WHERE id = ? AND tokens >= ?', [bet, user.id, bet], function(err) {
+            if (this.changes === 0) return socket.emit('casino_error', 'Not enough tokens.');
+            
+            // Random crash point
+            const e = 2 ** 32;
+            const h = crypto.getRandomValues(new Uint32Array(1))[0];
+            let crashPoint = Math.max(1, (e / (e - h)) * 0.99); // 1% house edge
+            if(crashPoint > 1000) crashPoint = 1000;
+            
+            user.crash = { bet: bet, point: crashPoint, currentMult: 1.00, active: true };
+            socket.emit('crash_update', { status: 'playing', mult: 1.00 });
+            
+            user.crash.interval = setInterval(() => {
+                if(!user.crash || !user.crash.active) return;
+                user.crash.currentMult += (user.crash.currentMult * 0.05); // Accelerate
+                if (user.crash.currentMult >= user.crash.point) {
+                    clearInterval(user.crash.interval);
+                    user.crash.active = false;
+                    socket.emit('crash_update', { status: 'crashed', mult: user.crash.point, netChange: -user.crash.bet });
+                    delete user.crash;
+                } else {
+                    socket.emit('crash_update', { status: 'playing', mult: user.crash.currentMult });
+                }
+            }, 100);
+        });
+    });
+
+    socket.on('crash_cashout', () => {
+        const user = activeUsers[socket.id];
+        if (!user || !user.crash || !user.crash.active) return;
+        
+        clearInterval(user.crash.interval);
+        user.crash.active = false;
+        
+        const win = Math.floor(user.crash.bet * user.crash.currentMult);
+        db.run('UPDATE users SET tokens = tokens + ? WHERE id = ?', [win, user.id]);
+        
+        socket.emit('crash_update', { status: 'cashed_out', mult: user.crash.currentMult, netChange: win - user.crash.bet });
+        delete user.crash;
+    });
+
+    // ---- HI-LO ----
+    socket.on('hilo_start', (bet) => {
+        const user = activeUsers[socket.id];
+        if (!user) return;
+        bet = parseInt(bet);
+        if (isNaN(bet) || bet <= 0) return socket.emit('casino_error', 'Invalid bet.');
+        
+        db.run('UPDATE users SET tokens = tokens - ? WHERE id = ? AND tokens >= ?', [bet, user.id, bet], function(err) {
+            if (this.changes === 0) return socket.emit('casino_error', 'Not enough tokens.');
+            
+            const card = Math.floor(Math.random() * 13) + 2; // 2 to 14 (Ace)
+            user.hilo = { bet: bet, current: card };
+            socket.emit('hilo_update', { status: 'playing', card: card, msg: 'Higher or Lower?' });
+        });
+    });
+
+    socket.on('hilo_guess', (guess) => {
+        const user = activeUsers[socket.id];
+        if (!user || !user.hilo) return;
+        
+        const nextCard = Math.floor(Math.random() * 13) + 2;
+        let win = false;
+        let draw = false;
+        if (nextCard === user.hilo.current) draw = true;
+        else if (guess === 'hi' && nextCard > user.hilo.current) win = true;
+        else if (guess === 'lo' && nextCard < user.hilo.current) win = true;
+
+        if (win) {
+            const payout = user.hilo.bet * 2;
+            db.run('UPDATE users SET tokens = tokens + ? WHERE id = ?', [payout, user.id]);
+            socket.emit('hilo_update', { status: 'win', card: nextCard, netChange: payout - user.hilo.bet, msg: 'You won!' });
+        } else if (draw) {
+            db.run('UPDATE users SET tokens = tokens + ? WHERE id = ?', [user.hilo.bet, user.id]);
+            socket.emit('hilo_update', { status: 'draw', card: nextCard, netChange: 0, msg: 'Draw. Bet returned.' });
+        } else {
+            socket.emit('hilo_update', { status: 'lose', card: nextCard, netChange: -user.hilo.bet, msg: 'You lost.' });
+        }
+        delete user.hilo;
     });
 
     socket.on('disconnect', () => {

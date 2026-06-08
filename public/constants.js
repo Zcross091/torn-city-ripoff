@@ -8,7 +8,7 @@ const ITEMS = [
     { id: 'redbull', name: 'Red Bull', icon: '🥫', desc: 'Restores 50 Energy instantly.', cost: 500, sell: 250, type: 'energy', val: 50, loc: 'Torn City' },
     { id: 'firstaid', name: 'First Aid Kit', icon: '🩹', desc: 'Restores 100 Life instantly.', cost: 1000, sell: 500, type: 'life', val: 100, loc: 'Torn City' },
     { id: 'beer', name: 'Can of Beer', icon: '🍺', desc: '+2 Nerve and +10 Happy.', cost: 200, sell: 100, type: 'mixed', loc: 'Torn City' },
-    { id: 'suitcase', name: 'Small Suitcase', icon: '💼', desc: 'Capacity +5 (Max 40).', cost: 25000, sell: 10000, type: 'booster', val: 5, loc: 'Torn City' },
+    { id: 'suitcase', name: 'Travel Suitcase', icon: '🧳', desc: 'Travel Capacity +10 (Max 5).', cost: 1000000, sell: 500000, type: 'suitcase', val: 10, loc: 'Torn City' },
     { id: 'tokens', name: 'Casino Tokens', icon: '🪙', desc: '100 Casino Tokens.', cost: 1000, sell: 500, type: 'tokens', val: 100, loc: 'Torn City' },
     { id: 'plushie_mexico', name: 'Jaguar Plushie', icon: '🐆', desc: 'Sells for profit in Torn.', cost: 10000, sell: 15000, type: 'collectible', loc: 'Mexico' },
     { id: 'plushie_canada', name: 'Wolverine Plushie', icon: '🦡', desc: 'Sells for profit in Torn.', cost: 15000, sell: 22000, type: 'collectible', loc: 'Canada' },

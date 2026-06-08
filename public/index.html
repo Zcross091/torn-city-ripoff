@@ -26,8 +26,11 @@
     </div>
 
     <div class="app-container hidden" id="app-container" style="display: flex; width: 100%; height: 100%;">
+        <!-- MOBILE SIDEBAR OVERLAY -->
+        <div id="sidebar-overlay" class="sidebar-overlay hidden" onclick="toggleSidebar()"></div>
+        
         <!-- SIDEBAR -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-section info-section">
                 <div class="player-name">Player</div>
                 <div class="player-level" id="location-display">📍 Torn City</div>
@@ -66,6 +69,12 @@
 
         <!-- MAIN CONTENT -->
         <main class="main-column">
+
+            <!-- Mobile Header -->
+            <div class="mobile-header hidden-desktop">
+                <button class="hamburger-btn" onclick="toggleSidebar()">☰</button>
+                <div class="mobile-title">Neon Syndicate</div>
+            </div>
 
             <!-- Top Status Bars -->
             <div class="status-bars">
@@ -256,6 +265,39 @@
                                     <div id="bj-msg" class="slot-msg" style="margin-top: 15px; color: var(--text-muted);">Place your bet to start.</div>
                                 </div>
                             </div>
+
+                            <!-- CRASH -->
+                            <div class="casino-wrapper" style="margin:0;">
+                                <h3 style="margin-bottom:10px;">Crash</h3>
+                                <div class="slot-machine">
+                                    <div id="crash-multiplier" style="font-size: 3rem; margin-bottom: 20px; font-weight:bold; color:var(--primary);">1.00x</div>
+                                    <div id="crash-controls-start">
+                                        <input type="number" id="crash-bet" class="bet-input" value="1" min="1" placeholder="Bet">
+                                        <button class="btn btn-primary" onclick="crashStart()">Start</button>
+                                    </div>
+                                    <div id="crash-controls-play" class="hidden">
+                                        <button class="btn btn-success" onclick="crashCashout()" style="width:100%;">Cash Out</button>
+                                    </div>
+                                    <div id="crash-msg" class="slot-msg" style="margin-top: 15px; color: var(--text-muted);">Don't let it crash!</div>
+                                </div>
+                            </div>
+
+                            <!-- HI-LO -->
+                            <div class="casino-wrapper" style="margin:0;">
+                                <h3 style="margin-bottom:10px;">Hi-Lo</h3>
+                                <div class="slot-machine">
+                                    <div id="hilo-card" style="font-size: 4rem; margin-bottom: 10px;">🂠</div>
+                                    <div id="hilo-controls-start">
+                                        <input type="number" id="hilo-bet" class="bet-input" value="1" min="1" placeholder="Bet">
+                                        <button class="btn btn-primary" onclick="socket.emit('hilo_start', document.getElementById('hilo-bet').value)">Deal First Card</button>
+                                    </div>
+                                    <div id="hilo-controls-play" class="hidden" style="display:flex; gap:10px; justify-content:center;">
+                                        <button class="btn btn-success" onclick="socket.emit('hilo_guess', 'hi')">Higher</button>
+                                        <button class="btn btn-danger" onclick="socket.emit('hilo_guess', 'lo')">Lower</button>
+                                    </div>
+                                    <div id="hilo-msg" class="slot-msg" style="margin-top: 15px; color: var(--text-muted);">Will the next card be higher or lower?</div>
+                                </div>
+                            </div>
                             
                         </div>
                     </div>
@@ -263,29 +305,73 @@
 
                 <!-- Trade Tab -->
                 <section id="trade" class="tab-content">
-                    <div class="content-header">Item Market</div>
+                    <div class="content-header">Global Markets</div>
                     <div class="content-body">
-                        <p class="text-muted mb-15">List items on the market at custom prices. Wait for buyers to purchase them.</p>
+                        <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                            <button class="btn btn-primary" onclick="switchMarketTab('city')">City Market</button>
+                            <button class="btn btn-accent" onclick="switchMarketTab('player')">Player Market (10% Fee)</button>
+                            <button class="btn btn-success" onclick="switchMarketTab('bazaar')">Bazaar (0% Fee)</button>
+                            <button class="btn" onclick="switchMarketTab('profiles')">Player Profiles & Trades</button>
+                        </div>
                         
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                            <div>
-                                <h3>Your Inventory</h3>
-                                <div id="trade-inventory-list" class="action-list mt-10">
-                                    <!-- Populate to sell -->
-                                </div>
+                        <!-- City Market -->
+                        <div id="market-city" class="market-view">
+                            <p class="text-muted mb-15">Buy directly from the city. Prices fluctuate to mimic inflation. Limit 100 items/day.</p>
+                            <div id="city-market-list" class="action-list mt-10 mb-15" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                                <!-- Populate city market -->
                             </div>
-                            <div>
-                                <h3>Active Listings</h3>
-                                <div id="trade-market-list" class="action-list mt-10 mb-15">
-                                    <!-- Market listings -->
+                        </div>
+
+                        <!-- Player Market -->
+                        <div id="market-player" class="market-view hidden">
+                            <p class="text-muted mb-15">Buy items from other players. Sellers pay a 10% fee upon sale.</p>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                <div>
+                                    <h3>Your Inventory</h3>
+                                    <div id="trade-inventory-list" class="action-list mt-10"></div>
                                 </div>
-                                
-                                <h3>Recent Trades Log</h3>
-                                <div id="trade-log-list" class="action-list mt-10" style="max-height: 200px; overflow-y: auto;">
-                                    <!-- Log -->
+                                <div>
+                                    <h3>Active Listings</h3>
+                                    <div id="trade-market-list" class="action-list mt-10 mb-15"></div>
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Bazaar -->
+                        <div id="market-bazaar" class="market-view hidden">
+                            <p class="text-muted mb-15">Welcome to the Bazaar. Anyone can buy, but you must unlock selling rights for 0% fees.</p>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                <div>
+                                    <div id="bazaar-locked-ui" class="hidden" style="text-align:center; padding: 20px; background: rgba(255,255,255,0.05); border-radius:10px;">
+                                        <h3 style="margin-bottom:15px; color:var(--primary);">Unlock Selling</h3>
+                                        <p style="margin-bottom:20px; color:var(--text-muted); font-size: 0.9rem;">Pay a one-time fee of $5.00 to unlock tax-free selling forever!</p>
+                                        <button class="btn btn-success" onclick="mockPayment()">Pay $5.00</button>
+                                    </div>
+                                    <div id="bazaar-unlocked-ui" class="hidden">
+                                        <h3>Your Inventory</h3>
+                                        <div id="bazaar-inventory-list" class="action-list mt-10"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h3>Bazaar Listings</h3>
+                                    <div id="bazaar-market-list" class="action-list mt-10 mb-15"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Player Profiles & Trades -->
+                        <div id="market-profiles" class="market-view hidden">
+                            <div style="display:flex; gap:10px; margin-bottom:20px;">
+                                <input type="text" id="search-username" class="chat-input" placeholder="Search Player Username">
+                                <button class="btn btn-primary" onclick="searchProfile()">Search</button>
+                            </div>
+                            <div id="profile-result" class="action-card hidden">
+                                <!-- Profile injected here -->
+                            </div>
+                            <h3 class="mt-20">Live Trading</h3>
+                            <p class="text-muted">Currently disabled in prototype. Use Bazaar or Player Market.</p>
+                        </div>
+
                     </div>
                 </section>
 

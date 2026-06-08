@@ -20,7 +20,10 @@ function initDb() {
             spd REAL DEFAULT 10,
             dex REAL DEFAULT 10,
             jailTime INTEGER DEFAULT 0,
-            property TEXT DEFAULT 'shack'
+            property TEXT DEFAULT 'shack',
+            bazaarUnlocked INTEGER DEFAULT 0,
+            dailyItemsBought INTEGER DEFAULT 0,
+            lastActiveDate TEXT DEFAULT ''
         )`);
 
         db.run(`CREATE TABLE IF NOT EXISTS inventory (
@@ -38,11 +41,34 @@ function initDb() {
             price INTEGER
         )`);
 
+        db.run(`CREATE TABLE IF NOT EXISTS bazaar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER,
+            itemId TEXT,
+            price INTEGER
+        )`);
+
         db.run(`CREATE TABLE IF NOT EXISTS bounties (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             targetId INTEGER,
             placerId INTEGER,
             reward INTEGER
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS user_properties (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER,
+            propertyId TEXT,
+            rentedToUserId INTEGER DEFAULT NULL,
+            rentDailyCost INTEGER DEFAULT 0,
+            rentDaysLeft INTEGER DEFAULT 0
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS relationships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER,
+            targetId INTEGER,
+            type TEXT
         )`);
     });
 }

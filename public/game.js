@@ -6,12 +6,16 @@ const state = {
     jailTime: 0,
     location: 'Torn City',
     inventory: {}, 
-    maxInv: 7,
+    maxInv: 60000,
     properties: ['shack'],
     currentProp: 'shack',
     bounties: [],
     bountyTimer: 60,
     marketListings: [],
+    bazaarListings: [],
+    liveCityMarket: [],
+    bazaarUnlocked: 0,
+    dailyItemsBought: 0,
     cityFinds: [], 
     tradeLog: [],
     phoneNotifications: [],
@@ -148,9 +152,25 @@ socket.on('login_success', data => {
     state.stats.dex = data.dex;
     state.jailTime = data.jailTime;
     state.currentProp = data.property;
+    state.bazaarUnlocked = data.bazaarUnlocked || 0;
+    state.dailyItemsBought = data.dailyItemsBought || 0;
     state.inventory = data.inventory || {};
     
+    // Calculate suitcase capacity
+    const suitcases = state.inventory['suitcase'] ? Math.min(5, state.inventory['suitcase']) : 0;
+    state.maxTravelInv = 10 + (suitcases * 10);
+    
     init(); // Start game loops and renders
+});
+
+socket.on('city_market_update', data => {
+    state.liveCityMarket = data;
+    if (document.getElementById('trade') && document.getElementById('trade').classList.contains('active')) {
+        renderTrade();
+    }
+    if (state.location !== 'Torn City' && document.getElementById('travel').classList.contains('active')) {
+        renderTravel();
+    }
 });
 
 socket.on('update_cash', amount => {
@@ -598,7 +618,29 @@ function renderTrade() {
 }
 
 let liveMarket = [];
+socket.on('bazaar_data', data => {
+    state.bazaarListings = data;
+    const list = document.getElementById('bazaar-market-list');
+    if (list) {
+        list.innerHTML = '';
+        data.forEach(m => {
+            const item = ITEMS.find(i => i.id === m.itemId);
+            list.innerHTML += `<div class="action-card mt-10"><div>${item.icon} ${item.name} <span class="text-muted">by ${m.sellerName}</span></div><button class="btn btn-success" onclick="socket.emit('buy_bazaar_item', ${m.id})">Buy $${m.price.toLocaleString()}</button></div>`;
+        });
+    }
+});
+
 socket.on('market_data', data => {
+    state.marketListings = data;
+    const list = document.getElementById('trade-market-list');
+    if (list) {
+        list.innerHTML = '';
+        data.forEach(m => {
+            const item = ITEMS.find(i => i.id === m.itemId);
+            list.innerHTML += `<div class="action-card mt-10"><div>${item.icon} ${item.name} <span class="text-muted">by ${m.sellerName}</span></div><button class="btn btn-success" onclick="socket.emit('buy_market_item', ${m.id})">Buy $${m.price.toLocaleString()}</button></div>`;
+        });
+    }
+});
     liveMarket = data;
     const container = document.getElementById('player-market-container');
     if (!container) return;
@@ -831,6 +873,116 @@ window.enrollEducation = function(id) {
 
 window.cancelEducation = function() { state.education.active = null; updateUI(); renderEducation(); }
 
+window.switchMarketTab = function(tab) {
+    document.querySelectorAll('.market-view').forEach(el => el.classList.add('hidden'));
+    document.getElementById('market-' + tab).classList.remove('hidden');
+    if(tab === 'city') renderCityMarket();
+    if(tab === 'player') renderPlayerMarket();
+    if(tab === 'bazaar') renderBazaar();
+}
+
+function renderCityMarket() {
+    const list = document.getElementById('city-market-list');
+    if(!list) return;
+    list.innerHTML = '';
+    state.liveCityMarket.forEach(liveItem => {
+        const item = ITEMS.find(i => i.id === liveItem.id);
+        if(!item) return;
+        let cost = liveItem.currentCost;
+        if (state.education.completed.includes('edu_bus')) cost = Math.floor(cost * 0.9);
+        list.innerHTML += `<div class="action-card" style="padding:10px;"><div>${item.icon} <strong>${item.name}</strong></div><div class="text-muted" style="font-size:0.8rem;">${item.desc}</div><button class="btn btn-success mt-10" onclick="buyItem('${item.id}')" style="width:100%">Buy $${cost.toLocaleString()}</button></div>`;
+    });
+}
+
+function renderPlayerMarket() {
+    socket.emit('get_market');
+    const invList = document.getElementById('trade-inventory-list');
+    if(!invList) return;
+    invList.innerHTML = '';
+    for (const [itemId, qty] of Object.entries(state.inventory)) {
+        if (qty > 0) {
+            const item = ITEMS.find(i => i.id === itemId);
+            invList.innerHTML += `<div class="action-card" style="padding:10px; margin-bottom:5px;"><div>${item.icon} ${item.name} <span class="badge">x${qty}</span></div>
+            <div style="display:flex; gap:5px; margin-top:5px;"><input type="number" id="price_${itemId}" placeholder="Price" class="chat-input" style="width:80px;"><button class="btn btn-accent" onclick="listMarketItem('${itemId}')">List</button></div></div>`;
+        }
+    }
+}
+
+function renderBazaar() {
+    socket.emit('get_bazaar'); // Always fetch bazaar listings for everyone
+
+    if(state.bazaarUnlocked === 0) {
+        document.getElementById('bazaar-locked-ui').classList.remove('hidden');
+        document.getElementById('bazaar-unlocked-ui').classList.add('hidden');
+    } else {
+        document.getElementById('bazaar-locked-ui').classList.add('hidden');
+        document.getElementById('bazaar-unlocked-ui').classList.remove('hidden');
+        
+        const invList = document.getElementById('bazaar-inventory-list');
+        if(!invList) return;
+        invList.innerHTML = '';
+        for (const [itemId, qty] of Object.entries(state.inventory)) {
+            if (qty > 0) {
+                const item = ITEMS.find(i => i.id === itemId);
+                invList.innerHTML += `<div class="action-card" style="padding:10px; margin-bottom:5px;"><div>${item.icon} ${item.name} <span class="badge">x${qty}</span></div>
+                <div style="display:flex; gap:5px; margin-top:5px;"><input type="number" id="bzprice_${itemId}" placeholder="Price" class="chat-input" style="width:80px;"><button class="btn btn-success" onclick="listBazaarItem('${itemId}')">List</button></div></div>`;
+            }
+        }
+    }
+}
+
+window.mockPayment = function() {
+    // Simulates a Stripe / Razerpay checkout success
+    showModal("Payment Processing", "Connecting to secure mock gateway...");
+    setTimeout(() => {
+        socket.emit('bazaar_unlock');
+    }, 1500);
+}
+
+socket.on('bazaar_unlocked_success', () => {
+    state.bazaarUnlocked = 1;
+    renderBazaar();
+});
+
+socket.on('bazaar_data', (data) => {
+    // Handle bazaar items if needed
+});
+
+function renderTrade() {
+    switchMarketTab('city');
+}
+
+window.listBazaarItem = function(itemId) {
+    const price = document.getElementById(`bzprice_${itemId}`).value;
+    socket.emit('list_bazaar_item', { itemId: itemId, price: price });
+}
+
+window.listMarketItem = function(itemId) {
+    const price = document.getElementById(`price_${itemId}`).value;
+    socket.emit('list_market_item', { itemId: itemId, price: price });
+}
+
+window.searchProfile = function() {
+    const target = document.getElementById('search-username').value;
+    if(!target) return;
+    socket.emit('search_user', target);
+}
+
+socket.on('profile_data', (data) => {
+    const res = document.getElementById('profile-result');
+    res.classList.remove('hidden');
+    res.innerHTML = `
+        <h2 style="color:var(--primary);">${data.username}</h2>
+        <div class="text-muted mb-15">Lives in: ${data.location} | Property: ${data.property} | Total Stats: ${Math.floor(data.totalStats).toLocaleString()}</div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-danger" onclick="socket.emit('attack_player', ${data.id})">Attack</button>
+            <button class="btn btn-accent" onclick="promptBounty('${data.username}')">Bounty</button>
+            <button class="btn btn-success" onclick="socket.emit('set_relationship', {targetId: ${data.id}, type: 'friend'})">Add Friend</button>
+            <button class="btn" style="background:#8b0000; color:white;" onclick="socket.emit('set_relationship', {targetId: ${data.id}, type: 'enemy'})">Add Enemy</button>
+        </div>
+    `;
+});
+
 // ---- CORE MISC ----
 function renderInventory() {
     els.inventoryList.innerHTML = '';
@@ -839,19 +991,50 @@ function renderInventory() {
             const item = ITEMS.find(i => i.id === itemId);
             const card = document.createElement('div'); card.className = 'action-card';
             card.innerHTML = `<div class="item-info"><span class="icon">${item.icon}</span><div><strong>${item.name}</strong> <span class="badge">x${qty}</span></div></div>
-            <div><button class="btn btn-success" onclick="useItem('${item.id}')">Use</button> <button class="btn ml-5" onclick="sellItem('${item.id}')">Quick Sell</button></div>`;
+            <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                <button class="btn btn-success" onclick="useItem('${item.id}')">Use</button>
+                <button class="btn" onclick="socket.emit('equip_item', '${item.id}')">Equip</button>
+                <button class="btn btn-accent" onclick="promptSendItem('${item.id}')">Send</button>
+                <button class="btn btn-danger" onclick="quickSellItem('${item.id}')">Sell (50%)</button>
+            </div>`;
             els.inventoryList.appendChild(card);
         }
     }
 }
+
+window.promptSendItem = function(itemId) {
+    const target = prompt("Enter the username to send this item to:");
+    if(!target) return;
+    socket.emit('send_item', { itemId: itemId, target: target });
+}
+
+window.quickSellItem = function(itemId) {
+    socket.emit('quick_sell_item', itemId);
+}
 function buyItem(itemId) {
     const item = ITEMS.find(i => i.id === itemId);
-    let cost = item.cost;
+    const liveItem = state.liveCityMarket.find(i => i.id === itemId);
+    let cost = liveItem ? liveItem.currentCost : item.cost;
+    
     if (state.education.completed.includes('edu_bus')) cost = Math.floor(cost * 0.9);
-    if(state.cash >= cost && getInventoryCount() < state.maxInv) { 
-        state.cash -= cost; state.inventory[itemId] = (state.inventory[itemId]||0)+1; 
-        updateUI(); renderInventory(); renderTrade(); 
-    } else if (state.cash < cost) {
+    
+    // Check inventory capacity
+    const currentInvCount = getInventoryCount();
+    if (currentInvCount >= state.maxInv) return showModal("Error", "Your inventory is full (Max 60,000).");
+    
+    // Check travel capacity
+    if (state.location !== 'Torn City') {
+        const foreignItemsCount = Object.keys(state.inventory).reduce((sum, key) => {
+            const it = ITEMS.find(i => i.id === key);
+            if (it && it.loc !== 'Torn City') return sum + state.inventory[key];
+            return sum;
+        }, 0);
+        if (foreignItemsCount >= state.maxTravelInv) return showModal("Error", `Travel capacity reached (${state.maxTravelInv} items). Buy suitcases in Torn City to increase this limit.`);
+    }
+
+    if(state.cash >= cost) { 
+        socket.emit('buy_npc_item', itemId); // Server handles deduction and adding
+    } else {
         showModal("Error", "Not enough cash.");
     }
 }
@@ -977,6 +1160,13 @@ function setupTabs() {
         if(t.dataset.tab==='newspaper') {
             // Static visual newspaper tab, no render func needed for prototype
         }
+        
+        if (window.innerWidth <= 768) {
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar && sidebar.classList.contains('open')) {
+                toggleSidebar();
+            }
+        }
     }));
 }
 
@@ -1059,5 +1249,72 @@ socket.on('bj_update', data => {
         else if (data.status === 'win') msg.innerHTML = `<span style="color:var(--success)">You won ${data.netChange} Tokens!</span>`;
         else if (data.status === 'lose') msg.innerHTML = `<span style="color:var(--danger)">Dealer wins. You lost ${Math.abs(data.netChange)} Tokens.</span>`;
         else msg.innerHTML = `<span style="color:var(--text-muted)">Push. Bet returned.</span>`;
+    }
+});
+
+// ---- MOBILE SIDEBAR LOGIC ----
+window.toggleSidebar = function() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar) sidebar.classList.toggle('open');
+    if (overlay) overlay.classList.toggle('active');
+}
+
+// ---- CRASH LOGIC ----
+window.crashStart = function() {
+    const bet = document.getElementById('crash-bet').value;
+    socket.emit('crash_start', bet);
+}
+window.crashCashout = function() {
+    socket.emit('crash_cashout');
+}
+socket.on('crash_update', data => {
+    const multDiv = document.getElementById('crash-multiplier');
+    const startDiv = document.getElementById('crash-controls-start');
+    const playDiv = document.getElementById('crash-controls-play');
+    const msg = document.getElementById('crash-msg');
+    
+    multDiv.innerText = data.mult.toFixed(2) + 'x';
+    
+    if (data.status === 'playing') {
+        startDiv.classList.add('hidden');
+        playDiv.classList.remove('hidden');
+        multDiv.style.color = 'var(--primary)';
+        msg.innerHTML = `Running...`;
+    } else if (data.status === 'crashed') {
+        startDiv.classList.remove('hidden');
+        playDiv.classList.add('hidden');
+        multDiv.style.color = 'var(--danger)';
+        msg.innerHTML = `<span style="color:var(--danger)">Crashed! You lost ${Math.abs(data.netChange)} Tokens.</span>`;
+    } else if (data.status === 'cashed_out') {
+        startDiv.classList.remove('hidden');
+        playDiv.classList.add('hidden');
+        multDiv.style.color = 'var(--success)';
+        msg.innerHTML = `<span style="color:var(--success)">Cashed Out! Won ${data.netChange} Tokens!</span>`;
+    }
+});
+
+// ---- HILO LOGIC ----
+const hiloCards = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
+socket.on('hilo_update', data => {
+    const cardDiv = document.getElementById('hilo-card');
+    const startDiv = document.getElementById('hilo-controls-start');
+    const playDiv = document.getElementById('hilo-controls-play');
+    const msg = document.getElementById('hilo-msg');
+    
+    let displayCard = data.card;
+    if(displayCard > 10) displayCard = hiloCards[displayCard];
+    cardDiv.innerText = `🂠 ${displayCard}`;
+    
+    if(data.status === 'playing') {
+        startDiv.classList.add('hidden');
+        playDiv.classList.remove('hidden');
+        msg.innerHTML = data.msg;
+    } else {
+        startDiv.classList.remove('hidden');
+        playDiv.classList.add('hidden');
+        if(data.status === 'win') msg.innerHTML = `<span style="color:var(--success)">${data.msg} Won ${data.netChange} Tokens!</span>`;
+        else if(data.status === 'lose') msg.innerHTML = `<span style="color:var(--danger)">${data.msg} Lost ${Math.abs(data.netChange)} Tokens.</span>`;
+        else msg.innerHTML = `<span style="color:var(--text-muted)">${data.msg}</span>`;
     }
 });
