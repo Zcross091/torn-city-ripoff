@@ -4,7 +4,7 @@ Neon Syndicate is a real-time, multiplayer text-based browser game inspired by c
 
 Build your stats in the gym, trade items on the global market, place assassination contracts on rival players, and risk your tokens in the server-validated casino. The game features a secure backend built with Node.js, Socket.io, and SQLite to ensure fair play, persistent progression, and live interaction between all players.
 
-![Neon Syndicate Gameplay](./screenshot.png)
+![Neon Syndicate Gameplay](image.png)
 
 ## Features
 
@@ -19,8 +19,7 @@ Build your stats in the gym, trade items on the global market, place assassinati
 
 You can start the entire environment (both the game client and the backend server) automatically with a single command.
 
-1. Ensure you have Node.js installed.
-2. Run the setup script in your terminal:
+1. Run the setup script in your terminal:
 
 ```bash
 bash setup.sh
